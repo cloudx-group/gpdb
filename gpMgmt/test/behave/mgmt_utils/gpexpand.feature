@@ -15,10 +15,9 @@ Feature: expand the cluster by adding more segments
         When the user runs gpexpand interview to add 2 new segment and 0 new host "ignored.host"
         Then the number of segments have been saved
         And user has created expansiontest tables
-        And 4000000 rows are inserted into table "expansiontest0" in schema "public" with column type list "int"
         And 4000000 rows are inserted into table "expansiontest1" in schema "public" with column type list "int"
-        And 4000000 rows are inserted into table "expansiontest2" in schema "public" with column type list "int"
         When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
+         And add 5 seconds sleep after first table expand
          And the user runs gpexpand to redistribute with duration "00:00:02"
         Then gpexpand should print "End time reached.  Stopping expansion." to stdout
         And verify that the cluster has 2 new segments
@@ -40,10 +39,9 @@ Feature: expand the cluster by adding more segments
         And the cluster is setup for an expansion on hosts "cdw,sdw1"
         When the user runs gpexpand interview to add 2 new segment and 0 new host "ignored.host"
         Then user has created expansiontest tables
-        And 4000000 rows are inserted into table "expansiontest0" in schema "public" with column type list "int"
         And 4000000 rows are inserted into table "expansiontest1" in schema "public" with column type list "int"
-        And 4000000 rows are inserted into table "expansiontest2" in schema "public" with column type list "int"
         When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
+        And add 5 seconds sleep after first table expand
         When the user runs gpexpand to redistribute with duration "00:00:02"
         Then gpexpand should print "End time reached.  Stopping expansion." to stdout
 
@@ -60,10 +58,9 @@ Feature: expand the cluster by adding more segments
         When the user runs gpexpand interview to add 2 new segment and 0 new host "ignored.host"
         Then the number of segments have been saved
         And user has created expansiontest tables
-        And 4000000 rows are inserted into table "expansiontest0" in schema "public" with column type list "int"
         And 4000000 rows are inserted into table "expansiontest1" in schema "public" with column type list "int"
-        And 4000000 rows are inserted into table "expansiontest2" in schema "public" with column type list "int"
         When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
+         And add 5 seconds sleep after first table expand
          And the user runs gpexpand to redistribute with the --end flag
         Then gpexpand should print "End time reached.  Stopping expansion." to stdout
         And verify that the cluster has 2 new segments
@@ -204,6 +201,33 @@ Feature: expand the cluster by adding more segments
         Then the number of segments have been saved
         When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
         Then verify that the cluster has 14 new segments
+        When the user runs gpexpand to redistribute
+        Then the tablespace is valid after gpexpand
+
+    @gpexpand_no_mirrors
+    Scenario: expand a cluster with tablespace when there is no tablespace configuration file
+        Given the database is not running
+        And a working directory of the test as '/data/gpdata/gpexpand'
+        And the user runs command "rm -rf /data/gpdata/gpexpand/*"
+        And a temporary directory under "/data/gpdata/gpexpand/expandedData" to expand into
+        And a cluster is created with no mirrors on "cdw" and "sdw1"
+        And database "gptest" exists
+        And a tablespace is created with data
+        And another tablespace is created with data
+        And there are no gpexpand_inputfiles
+        And the cluster is setup for an expansion on hosts "cdw"
+        And the user runs gpexpand interview to add 1 new segment and 0 new host "ignore.host"
+        And the number of segments have been saved
+        And there are no gpexpand tablespace input configuration files
+        When the user runs gpexpand with the latest gpexpand_inputfile without ret code check
+        Then gpexpand should return a return code of 1
+        And gpexpand should print "[WARNING]:-Could not locate tablespace input configuration file" escaped to stdout
+        And gpexpand should print "A new tablespace input configuration file is written to" escaped to stdout
+        And gpexpand should print "Please review the file and re-run with: gpexpand -i" escaped to stdout
+        And verify if a gpexpand tablespace input configuration file is created
+        When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
+        And verify that the cluster has 1 new segments
+        And all the segments are running
         When the user runs gpexpand to redistribute
         Then the tablespace is valid after gpexpand
 
@@ -577,3 +601,31 @@ Feature: expand the cluster by adding more segments
         And verify that the path "gpperfmon/logs" in each segment data directory does not exist
         And verify that the path "promote" in each segment data directory does not exist
         And verify that the path "db_analyze" in each segment data directory does not exist
+
+    @gpexpand_no_mirrors
+    @gpexpand_segment
+    Scenario: gpexpand should skip already expanded/broken tables when redistributing
+        Given the database is not running
+        And a working directory of the test as '/data/gpdata/gpexpand'
+        And a temporary directory under "/data/gpdata/gpexpand/expandedData" to expand into
+        And a cluster is created with no mirrors on "cdw" and "sdw1"
+        And database "gptest" exists
+        And the user runs psql with "-c 'CREATE TABLE test_good_1(a int)'" against database "gptest"
+        And the user runs psql with "-c 'CREATE TABLE test_already_expanded(a int)'" against database "gptest"
+        And the user runs psql with "-c 'CREATE TABLE test_broken(a int)'" against database "gptest"
+        And the user runs psql with "-c 'CREATE TABLE test_good_2(a int)'" against database "gptest"
+        And the user runs sql "DROP TABLE test_broken" in "gptest" on primary segment with content 0
+        And there are no gpexpand_inputfiles
+        And the cluster is setup for an expansion on hosts "cdw,sdw1"
+        When the user runs gpexpand interview to add 2 new segment and 0 new host "ignored.host"
+        Then the number of segments have been saved
+        When the user runs gpexpand with the latest gpexpand_inputfile with additional parameters "--silent"
+        Then verify that the cluster has 2 new segments
+        And the user runs psql with "-c 'ALTER TABLE test_already_expanded expand table'" against database "gptest"
+        When the user runs gpexpand to redistribute
+        Then gpexpand should print "[WARNING]:-Encountered unexpected issue when expanding table gptest.public.test_broken, skipping" escaped to stdout
+        And gpexpand should print "[INFO]:-Table gptest.public.test_already_expanded seems to be already expanded, marking as done" escaped to stdout
+        And table "test_good_1" should be marked as expanded
+        And table "test_good_2" should be marked as expanded
+        And table "test_already_expanded" should be marked as expanded
+        And table "test_broken" should not be marked as expanded

@@ -1335,7 +1335,6 @@ typedef struct
 Datum
 get_ao_distribution(PG_FUNCTION_ARGS)
 {
-	Oid			relid = PG_GETARG_OID(0);
 	FuncCallContext *funcctx;
 	MemoryContext oldcontext;
 	AclResult	aclresult;
@@ -1344,6 +1343,12 @@ get_ao_distribution(PG_FUNCTION_ARGS)
 	Relation	parentrel;
 	Relation	aosegrel;
 	int			ret;
+
+	if (SRF_IS_SQUELCH_CALL())
+	{
+		funcctx = SRF_PERCALL_SETUP();
+		goto srf_done;
+	}
 
 	Assert(Gp_role == GP_ROLE_DISPATCH);
 
@@ -1354,7 +1359,8 @@ get_ao_distribution(PG_FUNCTION_ARGS)
 	 */
 	if (SRF_IS_FIRSTCALL())
 	{
-		bool		connected = false;
+		Oid			relid = PG_GETARG_OID(0);
+		volatile bool		connected = false;
 		Oid			segrelid;
 
 		funcctx = SRF_FIRSTCALL_INIT();
@@ -1496,10 +1502,12 @@ get_ao_distribution(PG_FUNCTION_ARGS)
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 
+srf_done:
 	/*
 	 * do when there is no more left
 	 */
-	pfree(query_block);
+	if (query_block != NULL)
+		pfree(query_block);
 
 	SPI_finish();
 
@@ -1555,7 +1563,7 @@ aorow_compression_ratio_internal(Relation parentrel)
 {
 	StringInfoData sqlstmt;
 	Relation	aosegrel;
-	bool		connected = false;
+	volatile bool		connected = false;
 	int			proc;	/* 32 bit, only holds number of segments */
 	int			ret;
 	float8		compress_ratio = -1;	/* the default, meaning "not
