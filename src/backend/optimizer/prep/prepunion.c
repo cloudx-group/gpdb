@@ -1586,7 +1586,7 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 				gp_keep_partition_children_locks)
 				releaseLockMode = NoLock;
 			else
-				releaseLockMode = rel_needs_long_lock(childOID) ? NoLock: lockmode;
+				releaseLockMode = rel_is_part_child(childOID) ? lockmode : NoLock;
 
 			heap_close(newrelation, releaseLockMode);
 		}
