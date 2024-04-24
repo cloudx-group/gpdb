@@ -540,7 +540,7 @@ ORDER BY 1 asc ;
         </dxl:LogicalGroupBy>
       </dxl:LogicalLimit>
     </dxl:Query>
-    <dxl:Plan Id="0" SpaceSize="50">
+    <dxl:Plan Id="0" SpaceSize="75">
       <dxl:GatherMotion InputSegments="0,1" OutputSegments="-1">
         <dxl:Properties>
           <dxl:Cost StartupCost="0" TotalCost="1305.002085" Rows="1.000000" Width="4"/>

@@ -45,7 +45,7 @@ CPhysicalSequence::CPhysicalSequence(CMemoryPool *mp)
 	//			* If distribution of first child is a Non-Singleton, request
 	//				Non-Singleton on all children
 
-	SetDistrRequests(2);
+	SetDistrRequests(3);
 
 	m_pcrsEmpty = GPOS_NEW(mp) CColRefSet(mp);
 }
@@ -210,7 +210,7 @@ CPhysicalSequence::PdsRequired(CMemoryPool *mp,
 	GPOS_ASSERT(child_index < exprhdl.Arity());
 	GPOS_ASSERT(ulOptReq < UlDistrRequests());
 
-	if (0 == ulOptReq)
+	if (0 == ulOptReq || 2 == ulOptReq)
 	{
 		if (CDistributionSpec::EdtSingleton == pdsRequired->Edt() ||
 			CDistributionSpec::EdtStrictSingleton == pdsRequired->Edt())
@@ -219,6 +219,9 @@ CPhysicalSequence::PdsRequired(CMemoryPool *mp,
 			CDistributionSpecSingleton *pdss =
 				CDistributionSpecSingleton::PdssConvert(pdsRequired);
 			return GPOS_NEW(mp) CDistributionSpecSingleton(pdss->Est());
+		} else if ((2 == ulOptReq && CDistributionSpec::EdtAny == pdsRequired->Edt())) {
+			// incoming request is Any, try singleton as well as non-singleton on optreq 1
+			return GPOS_NEW(mp) CDistributionSpecSingleton(CDistributionSpecSingleton::EstMaster);
 		}
 
 		// incoming request is a non-singleton, request non-singleton on all children
