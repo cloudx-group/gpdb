@@ -44,6 +44,7 @@
 #include "storage/proc.h"
 #include "tcop/idle_resource_cleaner.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/guc_tables.h"
 #include "utils/inval.h"
 #include "utils/resscheduler.h"
@@ -161,6 +162,7 @@ bool		gp_log_suboverflow_statement = false;
 bool        gp_use_synchronize_seqscans_catalog_vacuum_full = false;
 
 bool		log_dispatch_stats = false;
+bool		gp_keep_partition_children_locks = true;
 
 int			explain_memory_verbosity = 0;
 char	   *memory_profiler_run_id = "none";
@@ -307,6 +309,7 @@ int			optimizer_cost_model;
 bool		optimizer_metadata_caching;
 int			optimizer_mdcache_size;
 bool		optimizer_use_gpdb_allocators;
+bool		optimizer_enable_table_alias;
 
 /* Optimizer debugging GUCs */
 bool		optimizer_print_query;
@@ -368,6 +371,7 @@ bool		optimizer_prune_unused_columns;
 bool		optimizer_enable_redistribute_nestloop_loj_inner_child;
 bool		optimizer_force_comprehensive_join_implementation;
 bool		optimizer_enable_replicated_table;
+bool		optimizer_enable_right_outer_join;
 
 /* Optimizer plan enumeration related GUCs */
 bool		optimizer_enumerate_plans;
@@ -432,6 +436,7 @@ bool		optimizer_replicated_table_insert;
 
 /* GUCs for slice table*/
 int			gp_max_slices;
+int			gp_max_system_slices;
 
 /* System Information */
 static int	gp_server_version_num;
@@ -914,6 +919,16 @@ struct config_bool ConfigureNamesBool_gp[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"gp_gang_creation_retry_non_recovery", PGC_USERSET, QUERY_TUNING_METHOD,
+		 gettext_noop("Retry gang creation if non-recovery failures are encountered during dispatch."),
+		 NULL,
+		 GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+		},
+		&gp_gang_creation_retry_non_recovery,
+		true,
+		NULL, NULL, NULL
+	},
 
 #ifdef USE_ASSERT_CHECKING
 	{
@@ -2975,6 +2990,17 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
+		{"optimizer_enable_table_alias", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enable using table aliases to make plan explain more descriptive"),
+			NULL,
+			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
+		},
+		&optimizer_enable_table_alias,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"vmem_process_interrupt", PGC_USERSET, DEVELOPER_OPTIONS,
 			gettext_noop("Checks for interrupts before reserving VMEM"),
 			NULL,
@@ -3279,6 +3305,29 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
+		{"optimizer_enable_right_outer_join", PGC_USERSET, QUERY_TUNING_METHOD,
+		 gettext_noop("Enable Orca to generate plans containing right outer joins."),
+		 gettext_noop("Right outer join can be re-written from left outer join. "
+					  "However, there are scenarios due to cardinality and cost "
+					  "misestimation, right outer join plan may be sub-optimal and "
+					  "can either be slower than the left outer join plan alternative "
+					  "or hit out-of-memory (OOM). The root cause can be identified "
+					  "by viewing the explain analyze plan and observing that the "
+					  "right outer join plan node is consuming all resources "
+					  "(CPU/memory) or the explain analyze itself hits OOM. By "
+					  "setting this GUC value to \"false\" users can force GPORCA to "
+					  "generate an equivalent left outer join plan. We recommend that "
+					  "the GUC be set at the query level as there can be several use "
+					  "cases where right outer join is the best plan alternative to "
+					  "choose."),
+		 GUC_NOT_IN_SAMPLE
+		},
+		&optimizer_enable_right_outer_join,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"gp_log_suboverflow_statement", PGC_SUSET, LOGGING_WHAT,
 		 gettext_noop("Enable logging of statements that cause subtransaction overflow."),
 		 NULL,
@@ -3307,6 +3356,17 @@ struct config_bool ConfigureNamesBool_gp[] =
 			&gp_detect_data_correctness,
 			false,
 			NULL, NULL, NULL
+	},
+
+	{
+		{"gp_keep_partition_children_locks", PGC_USERSET, QUERY_TUNING_METHOD,
+		 gettext_noop("Keep locks on partition children during planning"),
+		 NULL,
+		 GUC_NOT_IN_SAMPLE
+		},
+		&gp_keep_partition_children_locks,
+		true,
+		NULL, NULL, NULL
 	},
 
 	/* End-of-list marker */
@@ -4650,6 +4710,16 @@ struct config_int ConfigureNamesInt_gp[] =
 	},
 
 	{
+		{"gp_max_system_slices", PGC_SUSET, PRESET_OPTIONS,
+			gettext_noop("Maximum slices for a single query (superuser guc)"),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&gp_max_system_slices,
+		0, 0, INT_MAX, NULL, NULL
+	},
+
+	{
 		{"gp_dispatch_keepalives_idle", PGC_POSTMASTER, GP_ARRAY_TUNING,
 			gettext_noop("Time between issuing TCP keepalives from GPDB QD to its QEs."),
 			gettext_noop("A value of 0 uses the system default."),
@@ -5682,8 +5752,8 @@ check_gp_workfile_compression(bool *newval, void **extra, GucSource source)
 	return true;
 }
 
-void
-DispatchSyncPGVariable(struct config_generic * gconfig)
+static void
+dispatch_sync_pg_variable_internal(struct config_generic * gconfig, bool is_explicit)
 {
 	StringInfoData buffer;
 
@@ -5785,5 +5855,28 @@ DispatchSyncPGVariable(struct config_generic * gconfig)
 
 	}
 
-	CdbDispatchSetCommand(buffer.data, false);
+	if (is_explicit)
+		CdbDispatchSetCommandForSync(buffer.data);
+	else
+		CdbDispatchSetCommand(buffer.data, false);
+}
+
+/*
+ * Dispatches a regular SET command to all reader and writer gangs.
+ */
+void
+DispatchSyncPGVariable(struct config_generic * gconfig)
+{
+	return dispatch_sync_pg_variable_internal(gconfig, false);
+}
+
+/*
+ * This function behaves like DispatchSyncPGVariable(), but also sets the GUC
+ * source to PGC_CLIENT, just like we do in ProcessStartupPacket(), and
+ * bypasses GUC contexts up to PGC_SIGHUP.
+ */
+void
+DispatchSyncPGVariableExplicit(struct config_generic * gconfig)
+{
+	return dispatch_sync_pg_variable_internal(gconfig, true);
 }

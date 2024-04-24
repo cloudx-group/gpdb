@@ -301,6 +301,9 @@ CConfigParamMapping::SConfigMappingElem CConfigParamMapping::m_elements[] = {
 	 false,	 // m_negate_param
 	 GPOS_WSZ_LIT(
 		 "Explore a nested loop join even if a hash join is possible")},
+	{EopttraceKeepPartitionChildrenLocks, &gp_keep_partition_children_locks,
+	 false,	 // m_negate_param
+	 GPOS_WSZ_LIT("Keep locks on partition children during planning")},
 
 };
 
@@ -508,6 +511,15 @@ CConfigParamMapping::PackConfigParamInBitset(
 		GPOPT_DISABLE_XFORM_TF(CXform::ExfMultiExternalGet2MultiExternalScan));
 	traceflag_bitset->ExchangeSet(GPOPT_DISABLE_XFORM_TF(
 		CXform::ExfExpandDynamicGetWithExternalPartitions));
+
+	if (!optimizer_enable_right_outer_join)
+	{
+		// disable right outer join if the corresponding GUC is turned off
+		traceflag_bitset->ExchangeSet(
+			GPOPT_DISABLE_XFORM_TF(CXform::ExfLeftJoin2RightJoin));
+		traceflag_bitset->ExchangeSet(
+			GPOPT_DISABLE_XFORM_TF(CXform::ExfRightOuterJoin2HashJoin));
+	}
 
 	return traceflag_bitset;
 }
