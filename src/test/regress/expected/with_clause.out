@@ -1,3 +1,9 @@
+-- start_matchsubs
+--
+-- m/ERROR:  Inlining of non-SELECT operations is prohibited \(allpaths\.c:\d+\)/
+-- s/\d+/XXX/g
+--
+-- end_matchsubs
 drop table if exists with_test1 cascade;
 NOTICE:  table "with_test1" does not exist, skipping
 create table with_test1 (i int, t text, value int) distributed by (i);
@@ -2355,3 +2361,74 @@ UNION ALL
  c      | 1
 (7 rows)
 
+-- Test one cannot use DML CTE if multiple CTE references found.
+-- Otherwise it will cause duplicated DML operations.
+--start_ignore
+drop table if exists t1;
+NOTICE:  table "t1" does not exist, skipping
+--end_ignore
+create table t1 (i int, j int) distributed by (i);
+set gp_cte_sharing=off;
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+) select * from cte a join cte b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+explain (costs off)
+with cte as (
+    update t1 set j = j + 1
+    returning *
+) select * from cte a join cte b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+explain (costs off)
+with cte as (
+    delete from t1 where i > 0
+    returning *
+) select * from cte a join cte b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+-- Test when CTE selects from CTE with modifying DML and is refernced twice.
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte2 as (select * from cte)
+select * from cte2 a join cte2 b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+-- Test when modifying CTE is inside the Sublink or subquery of another CTE
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte2 as (select (select cte.i from cte join t1 using (i)) i, j
+from (select * from t1) x)
+select * from cte2 a join cte2 b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte2 as (select * from (select * from cte) x)
+select * from cte2 a join cte2 b on a.i=b.j;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+-- Test more complex cases of inlining
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+) select * from (
+with cte1 as (select * from cte) select * from (
+with cte2 as (select * from cte1)
+select * from cte2 a join cte2 using(i)) foo) bar;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+explain (costs off)
+with cte as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+) select * from (
+with cte2 as (
+with cte3 as (select * from cte) select (select cte3.i from cte3) i from t1)
+select * from cte2 a join cte2 using(i)) foo;
+ERROR:  Inlining of non-SELECT operations is prohibited (allpaths.c:2973)
+drop table t1;
+reset gp_cte_sharing;
