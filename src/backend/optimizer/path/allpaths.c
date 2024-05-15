@@ -4462,122 +4462,101 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 	if (node == NULL)
 		return false;
 
+	if (IsA(node, RangeTblEntry))
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) node;
+
+		/*
+		 * Check if the rte is CTE, which has been defined at a higher query
+		 * level than entry level of last subquery we called the walker with.
+		 * In this case we would be able to iterate through cteList of higher
+		 * level and analyze corresponding CTE.
+		 *
+		 * rte->ctelevelsup is equal to number of levels up from the level
+		 * where rte is referenced to the level where its CTE is defined.
+		 * Difference ctx->m_query_level - rte->ctelevelsup stands for
+		 * absolute query level, where the CTE is defined. In case if this
+		 * level is higher than absolute level of last subquery with
+		 * initialized PlannerInfo (last CTE and its root, which the walker
+		 * was last called with), we are able to derive the root. Based on its
+		 * cteList it is possible to investigate the CTE. Otherwise, this CTE
+		 * should have already been processed by query_tree_walker.
+		 *
+		 * For e.x. WITH cte1 AS (INSERT into...) SELECT * FROM (WITH cte2 as
+		 * (SELECT * from cte1) SELECT * FROM (WITH cte3 as (SELECT * FROM
+		 * cte2) SELECT * FROM cte3 a join cte3 b using (i)) foo) bar;
+		 *
+		 * Here cte3's subquery is an entry point for the walker with
+		 * cteroot->query_level = 3. cte3 references the cte2, whose
+		 * ctelevelsup is 2. It means that cte2 is defined at 2 levels up from
+		 * the m_query_level = 4. This level is higher than level where cte3
+		 * is defined, because cte3 is defined at level 3 and cte2 is at level
+		 * 2. In this case we can derive parent root, whose cteList contains
+		 * query of cte2.
+		 */
+		if (rte->rtekind == RTE_CTE &&
+			rte->ctelevelsup < ctx->m_query_level &&
+			(ctx->m_query_level - rte->ctelevelsup) <= ctx->cteroot->query_level)
+		{
+			ListCell   *lcn;
+			PlannerInfo *cteroot = ctx->cteroot;
+			Index		query_level = ctx->m_query_level;
+			Index		levelsup = ctx->cteroot->query_level -
+			(ctx->m_query_level - rte->ctelevelsup);
+
+			while (levelsup-- > 0)
+			{
+				ctx->cteroot = ctx->cteroot->parent_root;
+
+				if (!ctx->cteroot)
+					return false;
+			}
+
+			ctx->m_query_level = ctx->cteroot->query_level;
+
+			foreach(lcn, ctx->cteroot->parse->cteList)
+			{
+				CommonTableExpr *cte = (CommonTableExpr *) lfirst(lcn);
+
+				if (strcmp(cte->ctename, rte->ctename) == 0 &&
+					!cte->cterecursive &&
+					query_contains_dml_walker(cte->ctequery, ctx))
+					return true;
+			}
+
+			ctx->cteroot = cteroot;
+			ctx->m_query_level = query_level;
+		}
+
+		return false;			/* allow range_table_walker to continue */
+	}
+
 	if (IsA(node, Query))
 	{
 		Query	   *query = (Query *) node;
-		ListCell   *lc;
+		bool		result;
 
 		if (query->commandType != CMD_SELECT)
 			return true;
 
-		foreach(lc, query->rtable)
-		{
-			RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
-
-			if (rte->rtekind == RTE_SUBQUERY)
-			{
-				ctx->m_query_level++;
-				if (query_contains_dml_walker((Node *) rte->subquery, ctx))
-					return true;
-				ctx->m_query_level--;
-			}
-			else if (rte->rtekind == RTE_CTE)
-			{
-				/*
-				 * rte->ctelevelsup is equal to number of levels up from the
-				 * level where it's referenced to the level where its CTE is
-				 * defined. Difference ctx->m_query_level - rte->ctelevelsup
-				 * stands for absolute query level, where the CTE is defined.
-				 * In case if this level is higher than absolute level where
-				 * the original CTE (last CTE and its root, which the walker
-				 * was last called with) is defined, we are able to derive the
-				 * root of CTE related to current rte. Based on its cteList it
-				 * is possible to investigate the CTE. Otherwise, current CTE
-				 * is defined at levels lower than original is. In this case
-				 * the subroot with this CTE do not exist and we will get to
-				 * this CTE by falling back to query_tree_walker.
-				 * E.x. WITH cte1 AS (INSERT into...) SELECT * FROM
-				 * (WITH cte2 as (SELECT * from cte1) SELECT * FROM
-				 * (WITH cte3 as (SELECT * FROM cte2) SELECT * FROM
-				 * cte3 a join cte3 b using (i)) foo) bar;
-				 * Here cte3 is an entry point for the walker with
-				 * m_query_level = 4. cte3 references the cte2, whose
-				 * ctelevelsup is 2. It means that cte2 is defined at 2 level
-				 * up from the current level. This level is higher than level
-				 * where cte3 is defined. cte3 is defined at level 3 and cte2
-				 * is at level 2. In this case we can derive parent root,
-				 * whose cteList contains query of cte2.
-				 */
-				if (rte->ctelevelsup < ctx->m_query_level &&
-					(ctx->m_query_level - rte->ctelevelsup) <= ctx->cteroot->query_level)
-				{
-					ListCell   *lcn;
-					PlannerInfo *cteroot = ctx->cteroot;
-					Index		query_level = ctx->m_query_level;
-					Index		levelsup = ctx->cteroot->query_level -
-					(ctx->m_query_level - rte->ctelevelsup);
-
-					while (levelsup-- > 0)
-					{
-						ctx->cteroot = ctx->cteroot->parent_root;
-
-						if (!ctx->cteroot)
-							return false;
-					}
-
-					ctx->m_query_level = ctx->cteroot->query_level + 1;
-
-					foreach(lcn, ctx->cteroot->parse->cteList)
-					{
-						CommonTableExpr *cte = (CommonTableExpr *) lfirst(lcn);
-
-						if (strcmp(cte->ctename, rte->ctename) == 0 &&
-							!cte->cterecursive &&
-							query_contains_dml_walker(cte->ctequery, ctx))
-							return true;
-					}
-
-					ctx->cteroot = cteroot;
-					ctx->m_query_level = query_level;
-				}
-			}
-		}
-
-		/* And recurse into the query's subexpressions */
-		return query_tree_walker(query, query_contains_dml_walker,
-								 (void *) ctx, QTW_IGNORE_RT_SUBQUERIES);
-	}
-
-	if (IsA(node, SubLink))
-	{
-		SubLink    *sublink = (SubLink *) node;
-
 		ctx->m_query_level++;
-
-		if (query_contains_dml_walker(sublink->subselect, ctx))
-			return true;
-
+		result = query_tree_walker(query, query_contains_dml_walker,
+								   (void *) ctx, QTW_EXAMINE_RTES_BEFORE);
 		ctx->m_query_level--;
 
-		return false;
+		return result;
 	}
 
 	/*
-	 * Stepping into cte's subquery also counts as a level change, because
-	 * relative value of rte->ctelevelsup considers this kind of subqueries as
-	 * additional level.
+	 * The only reason why we consider this node is that CTE might be defined
+	 * but not referenced.
 	 */
 	if (IsA(node, CommonTableExpr))
 	{
 		CommonTableExpr *cte = (CommonTableExpr *) node;
 
-		ctx->m_query_level++;
-
-		if (cte->cterefcount && !cte->cterecursive &&
-			query_contains_dml_walker(cte->ctequery, ctx))
-			return true;
-
-		ctx->m_query_level--;
+		if (cte->cterefcount && !cte->cterecursive)
+			return query_contains_dml_walker(cte->ctequery, ctx);
 
 		return false;
 	}
@@ -4587,8 +4566,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 }
 
 /*
- * Checks whether given cte carries a non-SELECT operation inside.
- *
+ * Checks whether given CTE carries a non-SELECT operation inside.
  */
 static bool
 cte_query_contains_dml(Node *ctequery, PlannerInfo *root)
@@ -4597,12 +4575,10 @@ cte_query_contains_dml(Node *ctequery, PlannerInfo *root)
 
 	/*
 	 * The root is related to the query level, where given CTE in defined,
-	 * and, therefore, m_query_level in initialized with root->query_level +
-	 * 1. It means that we take into account that cte's subquery lies at one
-	 * level deeper. It is necessary for tracking absolute query level.
+	 * and, m_query_level in initialized with root->query_level - this level.
 	 */
 	ctx.cteroot = root;
-	ctx.m_query_level = root->query_level + 1;
+	ctx.m_query_level = root->query_level;
 	return query_contains_dml_walker(ctequery, &ctx);
 }
 
