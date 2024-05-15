@@ -4501,14 +4501,14 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 			ListCell   *lcn;
 			PlannerInfo *cteroot = ctx->cteroot;
 			Index		query_level = ctx->m_query_level;
-			Index		levelsup = ctx->cteroot->query_level -
-			(ctx->m_query_level - rte->ctelevelsup);
+			Index		levelsup = cteroot->query_level -
+			(query_level - rte->ctelevelsup);
 
 			while (levelsup-- > 0)
 			{
 				ctx->cteroot = ctx->cteroot->parent_root;
 
-				if (!ctx->cteroot)
+				if (ctx->cteroot == NULL)
 					return false;
 			}
 
