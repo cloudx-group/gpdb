@@ -1,6 +1,6 @@
 -- start_matchsubs
 --
--- m/ERROR:  Inlining of non-SELECT operations is prohibited \(allpaths\.c:\d+\)/
+-- m/ERROR:  Multiple inlining of non-SELECT operations is prohibited \(allpaths\.c:\d+\)/
 -- s/\d+/XXX/g
 --
 -- end_matchsubs
@@ -537,6 +537,28 @@ with cte as (
 with cte2 as (
 with cte3 as (select * from cte) select (select cte3.i from cte3) i from t1)
 select * from cte2 a join cte2 using(i)) foo;
+
+-- Test presence of modifying DML operations inside recursive CTEs
+explain (costs off)
+with recursive cte as (
+    select 1 as i from t1 where t1.j = 2
+    union all
+    select cte2.i from cte join cte2 using(i)),
+cte2 as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+) select * from cte;
+
+explain (costs off)
+with recursive cte as (
+    select 1 as i from t1 where t1.j = 2
+    union all
+    select cte2.i from cte join cte2 using(i)),
+cte2 as (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte3 as (select * from cte)
+select * from cte3 a join cte3 b using(i);
 
 drop table t1;
 reset gp_cte_sharing;

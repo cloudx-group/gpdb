@@ -2965,12 +2965,15 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	{
 		/*
 		 * If plan sharing is disabled, we avoid performing DML inside CTE for
-		 * multi reference case. Otherwise, it'll cause duplicated DML
-		 * operations.
+		 * multi reference and recursive cases. Otherwise, it'll cause
+		 * duplicated DML operations.
 		 */
-		if (cte->cterefcount > 1 &&
-			cte_query_contains_dml((Node *) cte->ctequery, cteroot))
-			elog(ERROR, "Inlining of non-SELECT operations is prohibited");
+		if ((cte->cterefcount > 1 || cte->cterecursive) &&
+			(((Query *) cte->ctequery)->commandType != CMD_SELECT ||
+			cte_query_contains_dml((Node *) cte->ctequery, cteroot)))
+		{
+			elog(ERROR, "Multiple inlining of non-SELECT operations is prohibited");
+		}
 
 		PlannerConfig *config = CopyPlannerConfig(root->config);
 
@@ -4570,7 +4573,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 
 		ctx->m_query_level++;
 
-		if (cte->cterefcount &&
+		if (cte->cterefcount && !cte->cterecursive &&
 			query_contains_dml_walker(cte->ctequery, ctx))
 			return true;
 
