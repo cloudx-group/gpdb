@@ -4555,7 +4555,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 	{
 		CommonTableExpr *cte = (CommonTableExpr *) node;
 
-		if (cte->cterefcount && !cte->cterecursive)
+		if (cte->cterefcount > 0 && !cte->cterecursive)
 			return query_contains_dml_walker(cte->ctequery, ctx);
 
 		return false;
