@@ -2372,10 +2372,6 @@ UNION ALL
 
 -- Test one cannot use DML CTE if multiple CTE references found.
 -- Otherwise it will cause duplicated DML operations.
---start_ignore
-drop table if exists t1;
-NOTICE:  table "t1" does not exist, skipping
---end_ignore
 create table t1 (i int, j int) distributed by (i);
 set gp_cte_sharing=off;
 explain (costs off)
@@ -2383,19 +2379,19 @@ with cte as (
     insert into t1 select i, i * 100 from generate_series(1,5) i
     returning *
 ) select * from cte a join cte b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 explain (costs off)
 with cte as (
     update t1 set j = j + 1
     returning *
 ) select * from cte a join cte b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 explain (costs off)
 with cte as (
     delete from t1 where i > 0
     returning *
 ) select * from cte a join cte b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 -- Test when CTE selects from CTE with modifying DML and is refernced twice.
 explain (costs off)
 with cte as (
@@ -2403,7 +2399,7 @@ with cte as (
     returning *
 ), cte2 as (select * from cte)
 select * from cte2 a join cte2 b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 -- Test when modifying CTE is inside the Sublink or subquery of another CTE
 explain (costs off)
 with cte as (
@@ -2412,14 +2408,14 @@ with cte as (
 ), cte2 as (select (select cte.i from cte join t1 using (i)) i, j
 from (select * from t1) x)
 select * from cte2 a join cte2 b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 explain (costs off)
 with cte as (
     insert into t1 select i, i * 100 from generate_series(1,5) i
     returning *
 ), cte2 as (select * from (select * from cte) x)
 select * from cte2 a join cte2 b on a.i=b.j;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 -- Test more complex cases of inlining
 explain (costs off)
 with cte as (
@@ -2429,7 +2425,7 @@ with cte as (
 with cte1 as (select * from cte) select * from (
 with cte2 as (select * from cte1)
 select * from cte2 a join cte2 using(i)) foo) bar;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 explain (costs off)
 with cte as (
     insert into t1 select i, i * 100 from generate_series(1,5) i
@@ -2438,7 +2434,7 @@ with cte as (
 with cte2 as (
 with cte3 as (select * from cte) select (select cte3.i from cte3) i from t1)
 select * from cte2 a join cte2 using(i)) foo;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 -- Test presence of modifying DML operations inside recursive CTEs
 explain (costs off)
 with recursive cte as (
@@ -2449,7 +2445,7 @@ cte2 as (
     insert into t1 select i, i * 100 from generate_series(1,5) i
     returning *
 ) select * from cte;
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 explain (costs off)
 with recursive cte as (
     select 1 as i from t1 where t1.j = 2
@@ -2460,6 +2456,6 @@ cte2 as (
     returning *
 ), cte3 as (select * from cte)
 select * from cte3 a join cte3 b using(i);
-ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:2975)
+ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
 drop table t1;
 reset gp_cte_sharing;
