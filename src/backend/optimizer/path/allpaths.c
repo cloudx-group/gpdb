@@ -4457,7 +4457,7 @@ typedef struct check_dml_context
  * Returns true if any subquery of given Query has any non-SELECT commandType.
  */
 static bool
-query_contains_dml_walker(Node *node, check_dml_context * ctx)
+query_contains_dml_walker(Node *node, check_dml_context *ctx)
 {
 	if (node == NULL)
 		return false;
@@ -4502,7 +4502,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 			PlannerInfo *cteroot = ctx->cteroot;
 			Index		query_level = ctx->m_query_level;
 			Index		levelsup = cteroot->query_level -
-			(query_level - rte->ctelevelsup);
+								   (query_level - rte->ctelevelsup);
 
 			while (levelsup-- > 0)
 			{
