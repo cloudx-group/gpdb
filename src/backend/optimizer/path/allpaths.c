@@ -4450,14 +4450,14 @@ is_query_contain_limit_groupby(Query *parse)
 typedef struct check_dml_context
 {
 	PlannerInfo *cteroot;
-	Index		m_query_level;	/* absolute query level */
+	Index		query_level;	/* absolute query level */
 }			check_dml_context;
 
 /*
  * Returns true if any subquery of given Query has any non-SELECT commandType.
  */
 static bool
-query_contains_dml_walker(Node *node, check_dml_context * ctx)
+query_contains_dml_walker(Node *node, check_dml_context *ctx)
 {
 	if (node == NULL)
 		return false;
@@ -4474,7 +4474,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 		 *
 		 * rte->ctelevelsup is equal to number of levels up from the level
 		 * where rte is referenced to the level where its CTE is defined.
-		 * Difference ctx->m_query_level - rte->ctelevelsup stands for
+		 * Difference ctx->query_level - rte->ctelevelsup stands for
 		 * absolute query level, where the CTE is defined. In case if this
 		 * level is higher than absolute level of last subquery with
 		 * initialized PlannerInfo (last CTE and its root, which the walker
@@ -4489,20 +4489,20 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 		 * Here cte3's subquery is an entry point for the walker with
 		 * cteroot->query_level = 3. cte3 references the cte2, whose
 		 * ctelevelsup is 2. It means that cte2 is defined at 2 levels up from
-		 * the m_query_level = 4. This level is higher than level where cte3
+		 * the query_level = 4. This level is higher than level where cte3
 		 * is defined, because cte3 is defined at level 3 and cte2 is at level
 		 * 2. In this case we can derive parent root, whose cteList contains
 		 * query of cte2.
 		 */
 		if (rte->rtekind == RTE_CTE &&
-			rte->ctelevelsup < ctx->m_query_level &&
-			(ctx->m_query_level - rte->ctelevelsup) <= ctx->cteroot->query_level)
+			rte->ctelevelsup < ctx->query_level &&
+			(ctx->query_level - rte->ctelevelsup) <= ctx->cteroot->query_level)
 		{
 			ListCell   *lcn;
 			PlannerInfo *cteroot = ctx->cteroot;
-			Index		query_level = ctx->m_query_level;
+			Index		query_level = ctx->query_level;
 			Index		levelsup = cteroot->query_level -
-			(query_level - rte->ctelevelsup);
+								   (query_level - rte->ctelevelsup);
 
 			while (levelsup-- > 0)
 			{
@@ -4512,7 +4512,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 					return false;
 			}
 
-			ctx->m_query_level = ctx->cteroot->query_level;
+			ctx->query_level = ctx->cteroot->query_level;
 
 			foreach(lcn, ctx->cteroot->parse->cteList)
 			{
@@ -4525,7 +4525,7 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 			}
 
 			ctx->cteroot = cteroot;
-			ctx->m_query_level = query_level;
+			ctx->query_level = query_level;
 		}
 
 		return false;			/* allow range_table_walker to continue */
@@ -4539,10 +4539,10 @@ query_contains_dml_walker(Node *node, check_dml_context * ctx)
 		if (query->commandType != CMD_SELECT)
 			return true;
 
-		ctx->m_query_level++;
+		ctx->query_level++;
 		result = query_tree_walker(query, query_contains_dml_walker,
 								   (void *) ctx, QTW_EXAMINE_RTES_BEFORE);
-		ctx->m_query_level--;
+		ctx->query_level--;
 
 		return result;
 	}
@@ -4575,10 +4575,10 @@ cte_query_contains_dml(Node *ctequery, PlannerInfo *root)
 
 	/*
 	 * The root is related to the query level, where given CTE in defined,
-	 * and, m_query_level in initialized with root->query_level - this level.
+	 * and, query_level in initialized with root->query_level - this level.
 	 */
 	ctx.cteroot = root;
-	ctx.m_query_level = root->query_level;
+	ctx.query_level = root->query_level;
 	return query_contains_dml_walker(ctequery, &ctx);
 }
 
