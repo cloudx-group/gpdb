@@ -560,5 +560,13 @@ cte2 as (
 ), cte3 as (select * from cte)
 select * from cte3 a join cte3 b using(i);
 
+-- Test MATERIALIZED CTEs with DML operations are planned freely
+explain (costs off)
+with cte as materialized (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte2 as (select * from cte)
+select * from cte2 a join cte2 b on a.i=b.j;
+
 drop table t1;
 reset gp_cte_sharing;

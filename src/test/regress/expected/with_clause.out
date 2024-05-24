@@ -2448,5 +2448,33 @@ cte2 as (
 ), cte3 as (select * from cte)
 select * from cte3 a join cte3 b using(i);
 ERROR:  Multiple inlining of non-SELECT operations is prohibited (allpaths.c:XXX)
+-- Test MATERIALIZED CTEs with DML operations are planned freely
+explain (costs off)
+with cte as materialized (
+    insert into t1 select i, i * 100 from generate_series(1,5) i
+    returning *
+), cte2 as (select * from cte)
+select * from cte2 a join cte2 b on a.i=b.j;
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Gather Motion 3:1  (slice1; segments: 3)
+   ->  Hash Join
+         Hash Cond: (cte.i = cte_1.j)
+         ->  Redistribute Motion 3:3  (slice2; segments: 3)
+               Hash Key: cte.i
+               ->  Subquery Scan on cte
+                     ->  Shared Scan (share slice:id 2:0)
+         ->  Hash
+               ->  Redistribute Motion 3:3  (slice3; segments: 3)
+                     Hash Key: cte_1.j
+                     ->  Subquery Scan on cte_1
+                           ->  Shared Scan (share slice:id 3:0)
+                                 ->  Insert on t1
+                                       ->  Redistribute Motion 1:3  (slice4; segments: 1)
+                                             Hash Key: i.i
+                                             ->  Function Scan on generate_series i
+ Optimizer: Postgres-based planner
+(17 rows)
+
 drop table t1;
 reset gp_cte_sharing;

@@ -4518,10 +4518,21 @@ query_contains_dml_walker(Node *node, check_dml_context *ctx)
 			{
 				CommonTableExpr *cte = (CommonTableExpr *) lfirst(lcn);
 
+				/*
+				 * Find the CTE corresponding to current rte. When CTE is
+				 * recursive or is going to be shared, there is no need to
+				 * continue the processing. If such rtes contain non-SELECT
+				 * DML operations, which are possibly can be inlined, they
+				 * will be processed separately when make_one_rel will reach
+				 * them.
+				 */
 				if (strcmp(cte->ctename, rte->ctename) == 0 &&
 					!cte->cterecursive &&
+					cte->ctematerialized != CTEMaterializeAlways &&
 					query_contains_dml_walker(cte->ctequery, ctx))
+				{
 					return true;
+				}
 			}
 
 			ctx->cteroot = cteroot;
@@ -4555,7 +4566,8 @@ query_contains_dml_walker(Node *node, check_dml_context *ctx)
 	{
 		CommonTableExpr *cte = (CommonTableExpr *) node;
 
-		if (cte->cterefcount > 0 && !cte->cterecursive)
+		if (cte->cterefcount > 0 && !cte->cterecursive &&
+			cte->ctematerialized != CTEMaterializeAlways)
 			return query_contains_dml_walker(cte->ctequery, ctx);
 
 		return false;
