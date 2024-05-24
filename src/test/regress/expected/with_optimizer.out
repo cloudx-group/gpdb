@@ -2617,7 +2617,7 @@ JOIN (SELECT * FROM cte UNION ALL SELECT * FROM cte) x USING (i);
  Slice 0: Dispatcher; root 0; parent -1; gang size 0
  Slice 1: Reader; root 0; parent 0; gang size 3
  Slice 2: Primary Writer; root 0; parent 1; gang size 3
- Slice 3: Singleton Reader; root 0; parent 2; gang size 1; segment 0
+ Slice 3: Singleton Reader; root 0; parent 2; gang size 1; segment N
 (21 rows)
 
 -- Case 4
@@ -2653,7 +2653,7 @@ UNION ALL
  Optimizer: Postgres-based planner
  Slice 0: Dispatcher; root 0; parent -1; gang size 0
  Slice 1: Primary Writer; root 0; parent 0; gang size 3
- Slice 2: Singleton Reader; root 0; parent 1; gang size 1; segment 1
+ Slice 2: Singleton Reader; root 0; parent 1; gang size 1; segment N
  Slice 3: Reader; root 0; parent 1; gang size 3
 (21 rows)
 
