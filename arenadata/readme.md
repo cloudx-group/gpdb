@@ -27,6 +27,27 @@ We need to execute [../concourse/scripts/ic_gpdb.bash](../concourse/scripts/ic_g
   /home/gpadmin/gpdb_src/concourse/scripts/ic_gpdb.bash
 ```
 
+## Jit regression tests suite
+
+* jit tests are basically no different from regular regression tests except they are executed with jit enabled
+* jit tests need to be executed with optimizer both on and off. Notice that make flags differ a bit for each scenario
+
+* optimizer=on
+```bash
+ docker run --name gpdb7_opt_on --rm -it -e TEST_OS=centos \
+  -e MAKE_TEST_COMMAND="-k PGOPTIONS='-c optimizer=on -c jit=on -c jit_above_cost=0 -c optimizer_jit_above_cost=0 -c gp_explain_jit=off' installcheck" \
+  --sysctl "kernel.sem=500 1024000 200 4096" gpdb7_regress:latest \
+  /home/gpadmin/gpdb_src/concourse/scripts/ic_gpdb.bash
+```
+
+* optimizer=off
+```bash
+ docker run --name gpdb7_opt_on --rm -it -e TEST_OS=centos \
+  -e MAKE_TEST_COMMAND="make -k PGOPTIONS='-c optimizer=off -c jit=on -c jit_above_cost=0 -c gp_explain_jit=off' installcheck" \
+  --sysctl "kernel.sem=500 1024000 200 4096" gpdb7_regress:latest \
+  /home/gpadmin/gpdb_src/concourse/scripts/ic_gpdb.bash
+```
+
 * we need to modify `MAKE_TEST_COMMAND` environment variable to run different suite. e.g. we may run test againt Postgres optimizer or ORCA with altering `PGOPTIONS` environment variable;
 * we need to increase semaphore amount to be able to run demo cluster
 
@@ -89,6 +110,8 @@ bash arenadata/scripts/run_behave_tests.bash gpstart gpstop
 
 
 Tests use `allure-behave` package and store allure output files in `allure-results` folder.
+Also, the allure report for each failed test has gpdb logs attached files. See `gpMgmt/test/behave_utils/arenadata/formatter.py`
+It required to add `gpMgmt/tests` directory to `PYTHONPATH`. 
 
 Greenplum cluster in Docker containers has its own peculiarities in preparing a cluster for tests.
 All tests are run in one way or another on the demo cluster, wherever possible.
