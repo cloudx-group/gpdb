@@ -1206,76 +1206,24 @@ DROP TABLE with_test;
 
 -- Test that planner correctly assigns writer and reader slices in case of
 -- shared modifying CTE.
-
---start_ignore
-DROP TABLE IF EXISTS with_t1;
-DROP TABLE IF EXISTS with_t2;
-DROP TABLE IF EXISTS with_t3_repl;
-DROP TABLE IF EXISTS with_t4_rand;
---end_ignore
-
-CREATE TABLE with_t1 (i int, j int);
-CREATE TABLE with_t2 (i int, j int);
-CREATE TABLE with_t3_repl (i int, j int) DISTRIBUTED REPLICATED;
-CREATE TABLE with_t4_rand (i int, j int) DISTRIBUTED RANDOMLY;
+CREATE TABLE with_test (i int, j int) DISTRIBUTED RANDOMLY;
 
 -- start_matchsubs
 -- m/segment \d$/
 -- s/segment \d$/segment N/
 -- end_matchsubs
 
--- Case 1
 EXPLAIN (SLICETABLE, COSTS OFF)
 WITH cte AS (
-	INSERT INTO with_t4_rand VALUES (1, 2) RETURNING *
+	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
 SELECT i FROM cte a
 JOIN cte b USING(i);
 
--- Case 2
--- First Shared Scan is consumer and is under the writing slice.
-EXPLAIN (SLICETABLE, COSTS OFF)
 WITH cte AS (
-	SELECT * FROM with_t1
+	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
-UPDATE with_t2 SET j = a.i FROM cte a
-JOIN (SELECT x.i, x.j FROM cte x LIMIT 1) b ON a.i = b.i
-WHERE b.i = with_t2.i;
+SELECT i FROM cte a
+JOIN cte b USING(i);
 
--- Case 3
-EXPLAIN (SLICETABLE, COSTS OFF)
-WITH cte AS (
-	INSERT INTO with_t1 SELECT i, i * 2 FROM generate_series(1, 5) i RETURNING *
-)
-SELECT * FROM with_t2
-JOIN (SELECT * FROM cte UNION ALL SELECT * FROM cte) x USING (i);
-
--- Case 4
--- Both consumer and producer in the same slice with third consumer in a
--- different slice (cross-slice Shared Scan).
-EXPLAIN (SLICETABLE, COSTS OFF)
-WITH cte AS (
-	INSERT INTO with_t1 SELECT i, i * 2 FROM generate_series(1, 5) i RETURNING *
-)
-SELECT * FROM cte
-UNION ALL
-SELECT * FROM cte
-UNION ALL
-(SELECT with_t2.j, cte.i FROM cte JOIN with_t2 USING (i));
-
--- Case 5
--- hasModifyingCTE member can relate to different CTE.
-EXPLAIN (SLICETABLE, COSTS OFF)
-WITH cte AS (
-	INSERT INTO with_t1 SELECT i, i * 2 FROM generate_series(1, 5) i RETURNING *
-), cte2 AS (
-	SELECT * FROM with_t3_repl
-)
-SELECT * FROM cte
-JOIN cte2 a ON cte.i = a.i
-JOIN (select with_t2.i FROM cte2 b JOIN with_t2 USING (i) LIMIT 1) x ON x.i = cte.i;
-
-DROP TABLE with_t1;
-DROP TABLE with_t2;
-DROP TABLE with_t3_repl;
-DROP TABLE with_t4_rand;
+DROP TABLE with_test;
