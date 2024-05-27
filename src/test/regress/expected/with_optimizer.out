@@ -2518,7 +2518,7 @@ WITH cte AS (
 	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
 SELECT i FROM cte a
-JOIN cte b USING(i);
+JOIN cte b USING (i);
                                         QUERY PLAN                                        
 ------------------------------------------------------------------------------------------
  Gather Motion 3:1  (slice1; segments: 3)
@@ -2548,7 +2548,7 @@ WITH cte AS (
 	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
 SELECT i FROM cte a
-JOIN cte b USING(i);
+JOIN cte b USING (i);
  i 
 ---
  1

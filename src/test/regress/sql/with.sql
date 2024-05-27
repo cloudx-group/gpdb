@@ -1218,12 +1218,12 @@ WITH cte AS (
 	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
 SELECT i FROM cte a
-JOIN cte b USING(i);
+JOIN cte b USING (i);
 
 WITH cte AS (
 	INSERT INTO with_test VALUES (1, 2) RETURNING *
 )
 SELECT i FROM cte a
-JOIN cte b USING(i);
+JOIN cte b USING (i);
 
 DROP TABLE with_test;
