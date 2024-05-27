@@ -2455,26 +2455,24 @@ with cte as materialized (
     returning *
 ), cte2 as (select * from cte)
 select * from cte2 a join cte2 b on a.i=b.j;
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Gather Motion 3:1  (slice1; segments: 3)
    ->  Hash Join
-         Hash Cond: (cte.i = cte_1.j)
+         Hash Cond: (share0_ref2.i = share0_ref1.j)
          ->  Redistribute Motion 3:3  (slice2; segments: 3)
-               Hash Key: cte.i
-               ->  Subquery Scan on cte
-                     ->  Shared Scan (share slice:id 2:0)
+               Hash Key: share0_ref2.i
+               ->  Shared Scan (share slice:id 2:0)
          ->  Hash
                ->  Redistribute Motion 3:3  (slice3; segments: 3)
-                     Hash Key: cte_1.j
-                     ->  Subquery Scan on cte_1
-                           ->  Shared Scan (share slice:id 3:0)
-                                 ->  Insert on t1
-                                       ->  Redistribute Motion 1:3  (slice4; segments: 1)
-                                             Hash Key: i.i
-                                             ->  Function Scan on generate_series i
+                     Hash Key: share0_ref1.j
+                     ->  Shared Scan (share slice:id 3:0)
+                           ->  Insert on t1
+                                 ->  Redistribute Motion 1:3  (slice4; segments: 1)
+                                       Hash Key: i.i
+                                       ->  Function Scan on generate_series i
  Optimizer: Postgres-based planner
-(17 rows)
+(15 rows)
 
 drop table t1;
 reset gp_cte_sharing;
