@@ -2969,8 +2969,8 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		 * duplicated DML operations.
 		 */
 		if ((cte->cterefcount > 1 || cte->cterecursive) &&
-			(((Query *) cte->ctequery)->commandType != CMD_SELECT ||
-			cte_query_contains_dml((Node *) cte->ctequery, cteroot)))
+			(subquery->commandType != CMD_SELECT ||
+			cte_query_contains_dml((Node *) subquery, cteroot)))
 		{
 			elog(ERROR, "Multiple inlining of non-SELECT operations is prohibited");
 		}
